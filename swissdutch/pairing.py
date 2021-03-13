@@ -155,6 +155,7 @@ class ScoreBracket:
             p2.pair_both(p1, p2.expected_colour)
 
     def _c1(self):
+        print('c1')
         step = self._c2a
 
         for p1 in self._players:
@@ -233,6 +234,7 @@ class ScoreBracket:
         return self._c4
 
     def _c4(self):
+        print('c4',self._p,self._p1,self._m1)
         self._players.sort(key=operator.attrgetter('pairing_no'))
         self._players.sort(key=operator.attrgetter('score'), reverse=True)
 
@@ -251,7 +253,13 @@ class ScoreBracket:
         return self._c6
 
     def _c6(self):
+        print('c6',self._p,self._p1,self._m1, len(self._s1), len(self._s2))
+        print('s1 in c6',len(self._s1),[(s.name,s.score) for s in self._s1])
+        print('s2 in c6',len(self._s2),[(s.name,s.score) for s in self._s2])
+        if len(self._s2) < len(self._s1):
+            raise Exception('this should not be happening', [(s.name,s.score) for s in self._s2], [(s.name,s.score) for s in self._s1])
         pairings = [(self._s1[i], self._s2[i]) for i in range(len(self._s1))]
+        print('pairings: ', [(p[0].name, p[0].pairing_no, p[1].name, p[1].pairing_no) for p in pairings])
         unpaired = list(set(self._s1 + self._s2) - set(sum(pairings, ())))
         bye      = unpaired[0] if len(unpaired) == 1 and self._lsb else None
         floater  = unpaired[0] if not(bye) and len(unpaired) == 1 else None
@@ -281,11 +289,12 @@ class ScoreBracket:
                     # Pair remainder
                     self._paired_floaters      = True
                     self._saved_transpositions = self._transpositions
+                    self._saved_p              = self._p
                     self._transpositions       = None
                     self._exchanges            = None
                     self._remaining_players    = unpaired
-                    self._p                    = self._p1 - self._m1
-                    self._x                    = self._x1
+                    self._p                    = self._p1 - self._m1 if self._heterogenous else math.floor(len(self._remaining_players)/2.0)
+                    #self._x                    = self._x1
                     step                       = self._c4
         else:
             step = self._c7
@@ -293,15 +302,17 @@ class ScoreBracket:
         return step
 
     def _c7(self):
+        print('c7')
         if not self._transpositions:
             self._transpositions = itertools.permutations(self._s2)
             next(self._transpositions) # skip 1st one since it's equal to current self._s2
-
         step = self._c6
 
         try:
             self._s2 = list(next(self._transpositions))
+            print('new transposition')
         except StopIteration: # no more transpositions
+            print('no more tranpositions')
             self._transpositions = None
             step = self._c10a if self._heterogenous else self._c8
 
@@ -336,7 +347,18 @@ class ScoreBracket:
 
         while delta <= max_diff:
             if delta == diff(s1_subsets[i], s2_subsets[k]):
-                exchanges.append( (s1_subsets[i], s2_subsets[k]) )
+                s1_exchange = copy(s1)
+                s2_exchange = copy(s2)
+
+                for player in s1_subsets[i]:
+                    s1_exchange.remove(player)
+                    s2_exchange.append(player)
+                for player in s2_subsets[k]:
+                    s2_exchange.remove(player)
+                    s1_exchange.append(player)
+
+                #exchanges.append( (s1_subsets[i], s2_subsets[k]) )
+                exchanges.append( ( s1_exchange, s2_exchange ) )
             if k < end_s2_subsets:
                 k += 1
                 continue
@@ -351,20 +373,23 @@ class ScoreBracket:
         return exchanges
 
     def _c8(self):
+        print("running c8")
         step = self._c5
 
         if self._exchanges == None:
+            print('calculating exchanges')
             self._s1.sort(key=operator.attrgetter('pairing_no'), reverse=True)
             self._s1.sort(key=operator.attrgetter('score'))
 
             self._s2.sort(key=operator.attrgetter('pairing_no'))
             self._s2.sort(key=operator.attrgetter('score'), reverse=True)
+            #print('original s1: ',[p.name for p in self._s1])
 
             self._exchanges = self._generate_exchanges(self._s1, self._s2,
                                                        self._exchange_length)
-        
-        exchange = None
+        print('exchanges', [(e[0][0].name, e[1][0].name) for e in self._exchanges])
 
+        exchange = None
         try:
             exchange = self._exchanges.pop(0)
         except IndexError: # no more exchanges (for this subset size)
@@ -372,33 +397,33 @@ class ScoreBracket:
             self._exchange_length += 1
 
             if self._exchange_length > self._p:
-                # We've exhausted all possible exchanges
+                print("We've exhausted all possible exchanges")
                 self._exchange_length = 1
                 self._remaining_players = None
                 step = self._c9 if self._heterogenous else self._c10a
             else:
                 step = self._c8 # generate another set of exchanges
         else:
-            s1_subset, s2_subset = exchange
-            for player in s1_subset:
-                self._s1.remove(player)
-                self._s2.append(player)
-            for player in s2_subset:
-                self._s2.remove(player)
-                self._s1.append(player)
+            
+            self._s1, self._s2 = exchange
 
         return step
 
     def _c9(self):
+        print("running c9")
         self._pairings       = []
         self._transpositions = self._saved_transpositions
+        self._p              = self._saved_p
+        #self._x              = self._x1
         self._s1             = self._players[:self._p]
         self._s2             = self._players[self._p:]
-        self._p              = self._p1
-        self._x              = self._x1
+        self._remaining_players = None
+        self._exchanges      = None
+        self._exchange_length = 1
         return self._c7
 
     def _c10a(self):
+        print("running c10a")
         step = self._c4
         if not self._criteria.b6_enabled_for_upfloaters:
             step = self._c10b
@@ -406,6 +431,7 @@ class ScoreBracket:
         return step
 
     def _c10b(self):
+        print("running c10b")
         step = self._c3h
         if not self._criteria.b5_enabled_for_upfloaters:
             step = self._c10c
@@ -413,6 +439,7 @@ class ScoreBracket:
         return step
 
     def _c10c(self):
+        print("running c10c")
         step = self._c3g
         if not self._criteria.b6_enabled_for_downfloaters:
             step = self._c10d
@@ -420,6 +447,7 @@ class ScoreBracket:
         return step
 
     def _c10d(self):
+        print("running c10d")
         step = self._c3f
         if not self._criteria.b5_enabled_for_downfloaters:
             step = self._c10e
@@ -427,28 +455,38 @@ class ScoreBracket:
         return step
 
     def _c10e(self):
+        print("running c10e, x, p1, z", self._x, self._p1, self._z, self._z1)
+        step = self._c3e
         if self.odd_round:
             if self._x < self._p1:
                 self._x += 1
+            else:
+                step = self._c14a if not self._heterogenous else self._c_14b
         else:
             if self._z < self._x:
                 self._z += 1
             elif self._z == self._x and self._x < self._p1:
                 self._x += 1
                 self._z = self._z1
-        return self._c3e
+            else:
+                step = self._c14a if not self._heterogenous else self._c_14b
+
+        return step
 
     def _c10f(self):
+        print("running c10f")
         if self.odd_round:
             self._criteria.a7d_enabled = False
         return self._c3d
 
     def _c10g(self):
+        print("running c10g")
         if self.last_round:
             self._criteria.b2_enabled_for_top_scorers = False
         return self._c3c
 
     def _c12(self):
+        print("running c12")
         step = None
         
         player = self._incompatible_player
@@ -463,6 +501,7 @@ class ScoreBracket:
         return step
 
     def _c13(self):
+        print("running c13")
         step = None
 
         if self._heterogenous:
@@ -480,11 +519,17 @@ class ScoreBracket:
         return step
 
     def _c14a(self):
+        print("running c14a")
         step = self._c3a
 
         if self._p1 == 0:
-            self._context.collapse_current_score_bracket()
-            step = None
+            if not self._lsb:
+                self._context.collapse_current_score_bracket()
+                step = None
+            else:
+                self._reset()
+                self._context.collapse_previous_score_bracket()
+                step = self._c1
         else:
             self._p1 -= 1
             self._x1 -= 1 if self._x1 > 0 else 0
@@ -493,6 +538,7 @@ class ScoreBracket:
         return step
 
     def _c14b(self):
+        print("running c14b")
         step = self._c3a
 
         if self._paired_floaters and not self._lsb:
@@ -526,7 +572,7 @@ class PairingCriteria:
 
     def b1b(self, player):
         """player may not receive a bye if they received a bye in the previous round."""
-        return player.opponents[-1]
+        return 0 not in player.opponents
 
     def b2(self, p1, p2):
         """p1 and p2 are incompatible if they have the same absolute colour preference."""
@@ -651,6 +697,7 @@ class PairingContext:
         self._ix -= 2
 
     def finalize_pairings(self):
+        print('finalising scoring in ',len(self._score_brackets),' score brackets')
         for sb in self._score_brackets:
             sb.finalize_pairings()
 
